@@ -21,7 +21,7 @@ class Cell:
 
 """# game has 2 steps for each player: setting up step in which player is setting up his 9 pieces,
 and next step is 'Move' step where she is moving her pieces around the board. """
-GameSteps = ['Setup', 'Move']
+GameSteps = ['Setup', 'Move', 'Remove']
 class NMMPlayer:
     def __init__(self, id, type):
         self.id = 'X'
@@ -42,6 +42,8 @@ class BoardGui(Frame):
         self.depth = -1  # -1 means search up to leaf level. So no restriction
         self.player1 = NMMPlayer(0, PlayerType[0])
         self.player2 = NMMPlayer(1, PlayerType[1])
+        self.player1tokens = 9
+        self.player2tokens = 9
         self.game = board
         self.parent = parent
 
@@ -143,12 +145,30 @@ class BoardGui(Frame):
         except IndexError:
             print("printboard: index error ")
 
-
     def reset(self):
         """reset the game's board"""
+        self.player1tokens = 9
+        self.player2tokens = 9
+
+        self.player1.poses = []
+        self.player2.poses = []
+
+        self.player1.numWin = 0
+        self.player2.numWin = 0
+
+        self.player1.picked = None
+        self.player2.picked = None
+
+        self.player1.step = GameSteps[0]
+        self.player2.step = GameSteps[0]
+
         for row in self.cells:
             for x in row:
-                x.button.config(state='normal', text="")
+                x.button.config(state='normal', text="", bg="pink")
+        
+        self.enableEmptyCells()
+
+        print("-----------------START-----------------")
 
     def quit(self):
         self.parent.destroy()
@@ -161,72 +181,342 @@ class BoardGui(Frame):
             for x in row:
                 x.button.config(state='disable', text="")
 
+    def disable_after_win(self, winner):
+        """
+        This function deactivates the game after a win, loss or draw or error.
+        """
+        for row in self.cells:
+            for x in row:
+                if x.button["text"] == winner:
+                    x.button.config(state='disable', bg='yellow')
+                elif x.button["text"] != "":
+                    x.button.config(state='disable', bg='red')
+                else:
+                    x.button.config(state='disable', bg='black')
+
+    def check_win(self):
+        # if player 1 has 2 or less pieces, player 2 wins
+        # if player 2 has 2 or less pieces, player 1 wins
+        if self.player1tokens == 0 and self.player2tokens == 0:
+            if(len(self.player1.poses) < 3):
+                print("-----------------P2 WINS-----------------")
+                # print("Player 2 wins!")
+                self.disable_after_win("O")
+                return True
+            elif(len(self.player2.poses) < 3):
+                print("-----------------P1 WINS-----------------")
+                # print("Player 1 wins!")
+                self.disable_after_win("X")
+                return True
+        return False
+
     def on_click(self, button):
         """ is used to step through the game. If Player1 is Human, then on_click is called when Human
         player clicks on an available spot. In case of AI vs AI playing, on_click is called as result
         of pressing 'next' button. """
+        print("-----------------------------------------------")
         x, y = self.getCoordinates(button)
 
         if self.player1.step == GameSteps[0]:
-            if len(self.player1.poses) < 8:
+            if self.player1tokens > 1:
                 self.player1.poses.append([x, y])
+                self.player1tokens -= 1
                 button.config(text=self.to_move, state='disabled', disabledforeground="green")
-                print("onClick: button.text=", button['text'], "pos: ", x, ", ", y)
-            elif len(self.player1.poses) == 8:
+                # print(" P1 > onClick: button.text=", button['text'], "pos: ", x, ", ", y)
+                print(" P1 > Added token to pos: ", [x, y], " tokens left: ", self.player1tokens)
+            elif self.player1tokens == 1:
                 self.player1.poses.append([x, y])
+                self.player1tokens -= 1
                 self.player1.step = GameSteps[1]
                 button.config(text=self.to_move, state='disabled', disabledforeground="green")
-                print("onClick: button.text=", button['text'], "pos: ", x, ", ", y)
+                # print(" P1 > onClick: button.text=", button['text'], "pos: ", x, ", ", y)
+                print(" P1 > Added token to pos: ", [x, y], " tokens left: ", self.player1tokens)
+                print("--------------BEGINNING MOVE PHASE-----------------")
                 self.enablePlayerCells(self.player1.poses)
-        else:
+                self.disablePlayerCells(self.player2.poses)
+                self.disableEmptyCells()
+
+            check3_p1 = self.check3inRow(self.to_move, [x, y])
+            # print(" P1 > setup check3inrow X , ", x, y ," : ", self.check3inRow("X", [x, y]))
+            if check3_p1 == True:
+                print(" P1 > 3inaRow Detected, Remove P2 Piece")
+                self.player1.step = GameSteps[2]
+                self.enablePlayerCells(self.player2.poses)
+                self.disablePlayerCells(self.player1.poses)
+                self.disableEmptyCells()
+                return
+            
+        elif self.player1.step == GameSteps[1]:
             # add the logic for move here:
             if [x, y] in self.player1.poses:
                 self.player1.picked = [x, y]
-                print("item at cell index ", self.player1.picked , " picked")
+                print(" P1 > item at cell index ", self.player1.picked , " picked")
+                self.disablePlayerCells(self.player1.poses)
+                self.disablePlayerCells(self.player2.poses)
+                self.enableEmptyCells()
+                return
+                
             elif self.player1.picked is not None:
                 start = self.player1.picked
-                print("move item from loc [", start[0], ", ",start[1], "] to location [", x, ",", y, "]")
+                print(" P1 > move item from loc [", start[0], ", ",start[1], "] to location [", x, ",", y, "]")
+                
                 if self.move(start, [x,y]) == True:
                     self.player1.poses.remove(start)
                     self.player1.poses.append([x,y])
+                else:
+                    print(" P1 > move failed")
+                    return
                 self.player1.picked = None
 
+                self.enablePlayerCells(self.player1.poses)
+                self.disablePlayerCells(self.player2.poses)
+                self.disableEmptyCells()
+
+                check3_p1 = self.check3inRow(self.to_move, [x, y])
+                # print(" P1 > Move check3inrow X , ", x, y ," : ", self.check3inRow("X", [x, y]))
+                if check3_p1 == True:
+                    print(" P1 > 3inaRow Detected, Remove P2 Piece")
+                    # print("--------------3inaRow Detected, Remove P2 Piece-----------------")
+                    self.player1.step = GameSteps[2]
+                    self.enablePlayerCells(self.player2.poses)
+                    self.disablePlayerCells(self.player1.poses)
+                    self.disableEmptyCells()
+                    return
+
+        elif self.player1.step == GameSteps[2]:
+            # add the logic to remove opponent piece here:
+            if [x, y] in self.player2.poses:
+                # check if the piece is in a 3-in-a-row, if it is it cannot be removed
+                if self.check3inRow("O", [x, y]) == True and len(self.player2.poses) > 3:
+                    print(" P1 > Cannot remove piece in 3-in-a-row")
+                    return
+                self.player2.poses.remove([x, y])
+                button.config(text="", state='normal')
+                print(" P1 > item at cell index ", [x, y], " removed")
+                if self.check_win():
+                    return
+                self.disablePlayerCells(self.player2.poses)
+                self.disablePlayerCells(self.player1.poses)
+                self.disableEmptyCells()
+                if self.player1tokens == 0:
+                    self.player1.step = GameSteps[1]
+                    self.enablePlayerCells(self.player1.poses)
+                else:
+                    self.player1.step = GameSteps[0]
+                    self.enableEmptyCells()
 
         if self.to_move == "X":
             self.to_move = "O"
         else:
             self.to_move = "X"
 
-        # select a move for AI. For now we choose a random available position.
-        # Note: This code is temporary,just to have a random player for demo. THe proper place for the
-        #       following functionality in in NMenMorris class, to be done by students.
-        a, b = self.game.randomMove(self)
+        a, b = self.randomMove()
+        pos = self.cells[a][b].pos
         if a != -1 and b != -1:
             if self.player2.step == GameSteps[0]:
-                if len(self.player2.poses) < 9:
-                    self.player2.poses.append([a, b])
+                if self.player2tokens > 1:
+                    self.player2.poses.append(pos)
+                    self.player2tokens -= 1
                     self.cells[a][b].button.config(text=self.to_move, state='disabled', disabledforeground="blue")
-                    print("onClick: Opponent button.text=", self.cells[a][b].button['text'], "pos: ", a, ", ", b)
+                    # print(" P2 > onClick: Opponent button.text=", self.cells[a][b].button['text'], "pos: ", pos[0], ", ", pos[1])
+                    print(" P2 > Added token to pos: ", [a, b], " tokens left: ", self.player2tokens)
                     self.cells[a][b].button.config(text=self.to_move, state='disabled', disabledforeground="blue")
-                    self.to_move = "X"
+                    # self.to_move = "X"
+                elif self.player2tokens == 1:
+                    # self.player2.poses.append([a, b])
+                    self.player2.poses.append(pos)
+                    self.player2tokens -= 1
+                    self.player2.step = GameSteps[1]
+                    self.cells[a][b].button.config(text=self.to_move, state='disabled', disabledforeground="blue")
+                    # print(" P2 > onClick: Opponent button.text=", self.cells[a][b].button['text'], "pos: ", pos[0], ", ", pos[1])
+                    print(" P2 > Added token to pos: ", [a, b], " tokens left: ", self.player2tokens)
+                    print("--------------BEGINNING MOVE PHASE-----------------")
+                    self.cells[a][b].button.config(text=self.to_move, state='disabled', disabledforeground="blue")
+                    # self.to_move = "X"
+                    # self.enablePlayerCells(self.player2.poses)
+
+                check3_p2 = self.check3inRow(self.to_move, pos)
+                # print(" P2 > setup check3inrow O , ", pos ," : ", self.check3inRow("O", pos))
+
+                if check3_p2 == True:
+                    # print("--------------3inaRow Detected, Removing P1 Piece-----------------")
+                    print(" P2 > 3inaRow Detected, Removing P1 Piece")
+                    # add logic for randomly choosing and removing one of opponents pieces
+                    rem = self.chooseRandomToRemove(self.player1.poses)
+                    print(" P2 > remove opponent piece at ", rem)
+                    self.player1.poses.remove(rem)
+                    self.getButton(rem).config(text="", state='normal')
+                    # self.cells[rem[0]][rem[1]].button.config(text="", state='normal')
+                    print(" P2 > item at cell index ", rem, " removed")
+                    if self.check_win():
+                        return
+                    # self.disablePlayerCells(self.player1.poses)
+                    if self.player2tokens == 0:
+                        self.player2.step = GameSteps[1]
+                        # self.enablePlayerCells(self.player2.poses)
+                    else:
+                        self.player2.step = GameSteps[0]
+                    
+                
+            elif self.player2.step == GameSteps[1]:
+                a, b, x, y = self.makeRandomMove()
+                # implement logic for AI move here:
+                if [a, b] in self.player2.poses:
+                    self.player2.picked = [a, b]
+                    print(" P2 > item at cell index ", self.player2.picked, " picked")
+                    start = self.player2.picked
+                    print(" P2 > move item from loc [", start[0], ", ", start[1], "] to location [", x, ",", y, "]")
+                    if self.move(start, [x, y]) == True:
+                        self.player2.poses.remove(start)
+                        self.player2.poses.append([x, y])
+                        self.getButton([x,y]).config(text=self.to_move, state='disabled', disabledforeground="blue")
+                        self.getButton([a,b]).config(text="", state='normal')
+                    self.player2.picked = None
+                
+                check3_p2 = self.check3inRow(self.to_move, [x,y])
+                # print(" P2 > Move check3inrow O , ", pos ," : ", self.check3inRow("O", [x,y]))
+
+                if check3_p2 == True:
+                    # print("--------------3inaRow Detected, Removing P1 Piece-----------------")
+                    print(" P2 > 3inaRow Detected, Removing P1 Piece")
+                    # add logic for randomly choosing and removing one of opponents pieces
+                    rem = self.chooseRandomToRemove(self.player1.poses)
+                    print(" P2 > remove opponent piece at ", rem)
+                    self.player1.poses.remove(rem)
+                    self.getButton(rem).config(text="", state='normal')
+                    # self.cells[rem[0]][rem[1]].button.config(text="", state='normal')
+                    print(" P2 > item at cell index ", rem, " removed")
+                    if self.check_win():
+                        return
+                    # self.disablePlayerCells(self.player1.poses)
+                    if self.player2tokens == 0:
+                        self.player2.step = GameSteps[1]
+                        # self.enablePlayerCells(self.player2.poses)
+                    else:
+                        self.player2.step = GameSteps[0]
+                    
+
+            if self.to_move == "X":
+                self.to_move = "O"
+            else:
+                self.to_move = "X"
         else:
             print("!!Error in finding available free spot. Disabling the game!\n")
             self.disable_game()
 
+        if self.check_win():
+            return
+        
+    def getButton(self, pos):
+        """Get the button at the given position"""
+        for i in range(7):
+            row = self.cells[i]
+            for j in range(len(row)):
+                if self.cells[i][j].pos == pos:
+                    return self.cells[i][j].button
 
-    # def randomMove(self):
-    #     """Randomly pick a free position on the board
-    #     Note: This is temporary, and students will move this code to NMensMorris class as part of the assignment tasks"""
-    #     upperCap = 50 # after some number (here 50) of trial if we can't find available spot, return -1
-    #     while(upperCap > 0):
-    #         a = random.choice(range(7))
-    #         b = random.randrange(len(self.cells[a]))
-    #         upperCap -= 1
-    #         if(self.cells[a][b].button["text"] == ""):
-    #             return a, b
+    def chooseRandomToRemove(self, list):
+        """Choose a random element from the list"""
+        sol = random.choice(list)
+        while self.check3inRow("X", sol) == True and len(list) > 3:
+            sol = random.choice(list)
+        return sol
 
-    #     print("Error! randomMove(): no available pos found in the board. Something is wrong!")
-    #     return -1, -1
+    def check3inRow(self, player, cur_move):
+        """Check if the player has 3 in a row"""
+
+        plausible_matches = [
+            # diagonals
+            [[0, 0], [1, 1], [2, 2]],
+            [[0, 6], [1, 5], [2, 4]],
+            [[6, 0], [5, 1], [4, 2]],
+            [[6, 6], [5, 5], [4, 4]],
+            [[3, 1], [4, 2], [5, 3]],
+            [[5, 3], [4, 4], [3, 5]],
+            [[3, 1], [2, 2], [1, 3]],
+            [[1, 3], [2, 4], [3, 5]],
+
+            # verticals
+            [[2, 2], [3, 2], [4, 2]],
+            [[2, 4], [3, 4], [4, 4]],
+            [[0, 3], [1, 3], [2, 3]],
+            [[4, 3], [5, 3], [6, 3]],
+
+            # horizontals
+            [[2, 2], [2, 3], [2, 4]],
+            [[4, 2], [4, 3], [4, 4]],
+            [[3, 0], [3, 1], [3, 2]],
+            [[3, 4], [3, 5], [3, 6]],
+        ]
+
+        for match in plausible_matches:
+            if cur_move in match:
+                # print("possible rows:" , match)
+                if player == "X":
+                    # print([locs in self.player1.poses for locs in match])
+                    if all(locs in self.player1.poses for locs in match):
+                        self.player1.numWin += 1
+                        return True
+                elif player == "O":
+                    if all(locs in self.player2.poses for locs in match):
+                        self.player2.numWin += 1
+                        return True
+        return False
+
+    def removePlayer1Pose(self, pose):
+        """remove the pose from the player's poses"""
+        self.player1.poses.remove(pose)
+        self.cells[pose[0]][pose[1]].button.config(text="", state='normal')
+
+    def removePlayer2Pose(self, pose):
+        """remove the pose from the player's poses"""
+        self.player2.poses.remove(pose)
+        self.cells[pose[0]][pose[1]].button.config(text="", state='normal')
+
+    def makeRandomMove(self):
+        """make a random move for the AI player"""
+        a = -1
+        b = -1
+        available_moves = []
+        while available_moves == []:
+            a, b = random.choice(self.player2.poses)
+            available_moves = self.getAvailableMovesForPos(a, b)
+        x, y = random.choice(available_moves)
+        return a, b, x, y
+        
+    def getAvailableMoves(self, pose):
+        """get available moves for the pose"""
+        return self.getAvailableMovesForPos(pose[0], pose[1])
+    
+    def getAvailableMovesForPos(self, x, y):
+        """get available moves for the position x, y"""
+        moves = []
+        vacant_cells = []
+        for row in self.cells:
+            for cell in row:
+                if cell.button["text"] == "":
+                    vacant_cells.append(cell.pos)
+        for i in range(-1, 2):
+            for j in range(-1, 2):
+                x1 = x + i
+                y1 = y + j
+                if [x1, y1] in vacant_cells:
+                    moves.append([x1, y1])
+        return moves
+
+    def randomMove(self):
+        """Randomly pick a free position on the board
+        Note: This is temporary, and students will move this code to NMensMorris class as part of the assignment tasks"""
+        upperCap = 50 # after some number (here 50) of trial if we can't find available spot, return -1
+        while(upperCap > 0):
+            a = random.choice(range(7))
+            b = random.randrange(len(self.cells[a]))
+            upperCap -= 1
+            if(self.cells[a][b].button["text"] == ""):
+                return a, b
+
+        print("Error! randomMove(): no available pos found in the board. Something is wrong!")
+        return -1, -1
 
     def enablePlayerCells(self, poses):
         """go through all the cells occupied by positions in pos array and enable their buttons for clicking"""
@@ -236,10 +526,42 @@ class BoardGui(Frame):
                     if cell.pos == pos:
                         cell.button.config(state='normal')
 
+    def disablePlayerCells(self, poses):
+        """go through all the cells occupied by positions in pos array and disable their buttons for clicking"""
+        for pos in poses:
+            for row in self.cells:
+                for cell in row:
+                    if cell.pos == pos:
+                        if cell.button["text"] == "X":
+                            cell.button.config(state='disabled', disabledforeground='green')
+                        elif cell.button["text"] == "O":
+                            cell.button.config(state='disabled', disabledforeground='blue')
+
+    def enableEmptyCells(self):
+        """enable all the empty cells for clicking"""
+        for row in self.cells:
+            for cell in row:
+                if cell.button["text"] == "":
+                    cell.button.config(state='normal')
+
+    def disableEmptyCells(self):
+        """disable all the empty cells for clicking"""
+        for row in self.cells:
+            for cell in row:
+                if cell.button["text"] == "":
+                    cell.button.config(state='disabled')
+
     def move(self, start, end):
         """try to move a player from start to end position"""
+        legal_moves = self.getAvailableMoves(start)
+        if end not in legal_moves:
+            print("move: Error: end position is not a legal move")
+            return False
+        
         x, y = start
         a, b = end
+
+
         for sCell in self.cells[x]:
             if sCell.pos == start:
                 assert sCell.button["text"]!="", "move: Error: start cell cannot be empty"
@@ -254,7 +576,6 @@ class BoardGui(Frame):
 
 
         return False
-
 
 def initialize(nmm):
     root = Tk()
